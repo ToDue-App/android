@@ -18,7 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -35,8 +37,6 @@ import com.robinwersich.todue.domain.model.TimeBlock
 import com.robinwersich.todue.domain.model.Timeline
 import com.robinwersich.todue.domain.model.size
 import com.robinwersich.todue.domain.model.toDoubleRange
-import com.robinwersich.todue.ui.composeextensions.Eq
-import com.robinwersich.todue.ui.composeextensions.Geq
 import com.robinwersich.todue.ui.composeextensions.Leq
 import com.robinwersich.todue.ui.composeextensions.Lt
 import com.robinwersich.todue.ui.composeextensions.Near
@@ -47,7 +47,9 @@ import com.robinwersich.todue.ui.composeextensions.modifiers.padding
 import com.robinwersich.todue.ui.composeextensions.modifiers.scaleFromSize
 import com.robinwersich.todue.ui.composeextensions.modifiers.size
 import com.robinwersich.todue.ui.presentation.organizer.state.NavigationState
+import com.robinwersich.todue.ui.presentation.organizer.state.TimeBlockStyle
 import com.robinwersich.todue.ui.presentation.organizer.state.TimelineStyle
+import com.robinwersich.todue.ui.presentation.organizer.state.timeBlockStyle
 import com.robinwersich.todue.utility.size
 import kotlinx.collections.immutable.ImmutableList
 
@@ -162,9 +164,6 @@ private fun OrganizerNavigationLayout(
             (relativeOffset * constraints.maxWidth).toInt()
           }
 
-        val isFullscreen = timelineStyle.isState(Eq(TimelineStyle.FULLSCREEN))
-        val isParent = timelineStyle.isState(Geq(TimelineStyle.PARENT))
-
         for (timeBlock in timeBlocks) {
           key(timeBlock) {
             val blockHeight by
@@ -176,12 +175,23 @@ private fun OrganizerNavigationLayout(
                 ((timeBlock.toDoubleRange().start - it.start) / it.size * constraints.maxHeight)
                   .toInt()
               }
-            val isFocussed = navigationState.currentTimeBlock == timeBlock
-            val composeExpanded = isFullscreen || isFocussed
-            val showExpanded = isFullscreen || isFocussed && isParent
+
+            val timeBlockStyle =
+              navigationState.navPosTransition.derived(aggregate = true) {
+                timeBlockStyle(timeBlock, timeline, it)
+              }
+            val showExpanded by
+              timeBlockStyle.derivedState { !isAround(TimeBlockStyle.PREVIEW, 0.8f) }
+
+            var composeExpanded by remember { mutableStateOf(showExpanded) }
             val expandedAlpha by
-              animateFloatAsState(if (showExpanded) 1f else 0f, label = "expandedAlpha")
-            val showBlockBounds = !(isFullscreen && navigationState.isSettled)
+              animateFloatAsState(
+                if (showExpanded) 1f else 0f,
+                label = "expandedAlpha",
+                finishedListener = { composeExpanded = it > 0f }
+              )
+            val showBlockBounds = !timeBlockStyle.isSettled(TimeBlockStyle.FULLSCREEN)
+            // TODO: is a dynamic padding actually necessary?
             val padding by animateDpAsState(if (showBlockBounds) 4.dp else 0.dp, label = "padding")
             val cornerRadius by
               animateDpAsState(if (showBlockBounds) 24.dp else 0.dp, label = "cornerRadius")

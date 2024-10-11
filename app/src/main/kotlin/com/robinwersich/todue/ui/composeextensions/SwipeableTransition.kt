@@ -4,7 +4,6 @@ import androidx.annotation.FloatRange
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -14,12 +13,24 @@ import androidx.compose.ui.util.lerp
 import com.robinwersich.todue.utility.isSame
 import com.robinwersich.todue.utility.map
 
+/** Has distinct anchor states but can be between two of those states. */
+interface FluentState<T> {
+  fun isBetween(firstAnchor: T, secondAnchor: T): Boolean
+
+  /** If the current state is in the given [radius] around the given [anchor]. */
+  fun isAround(anchor: T, @FloatRange(from = 0.0, to = 1.0) radius: Float): Boolean
+}
+
 /**
  * This fulfills a similar role as [Transition][androidx.compose.animation.core.Transition], but
  * instead of allowing only state changes, triggering fire-once animations, it allows to provide
  * animation progress as an input value, so that it can be controlled by swipeable composables, such
  * as [anchoredDraggable][androidx.compose.foundation.gestures.anchoredDraggable] or
  * [Pager][androidx.compose.foundation.pager.Pager].
+ *
+ * Even though a [SwipeableTransition] can be between two distinct states, it doesn't have a current
+ * value for these in-between states. For this, use a [SwipeableValue], which can retrieved using
+ * [interpolatedValue].
  *
  * Note that this kind of transition has a "direction", meaning that states have an order and
  * certain states come "before" others. Depending on the underlying swipeable this order is based on
@@ -34,13 +45,30 @@ import com.robinwersich.todue.utility.map
 class SwipeableTransition<T>(
   val transitionStates: () -> Pair<T, T>,
   @FloatRange(from = 0.0, to = 1.0) val progress: () -> Float,
-) {
+) : FluentState<T> {
   /** Convenience constructor for previews. */
   constructor(state: T) : this({ state to state }, { 0f })
+
+  override fun isBetween(firstAnchor: T, secondAnchor: T): Boolean {
+    val (prevState, nextState) = transitionStates()
+    return prevState == firstAnchor && nextState == secondAnchor ||
+      prevState == secondAnchor && nextState == firstAnchor
+  }
+
+  override fun isAround(anchor: T, radius: Float): Boolean {
+    val (prevState, nextState) = transitionStates()
+    return prevState == anchor && nextState == anchor ||
+      prevState == anchor && progress() <= radius ||
+      nextState == anchor && progress() >= 1f - radius
+  }
 
   /** Specifies if the transition is currently animating or not. */
   val isSettled: Boolean
     get() = transitionStates().let { (prev, next) -> prev == next }
+
+  /** Returns if the transition is currently settled on the given [anchor]. */
+  fun isSettled(anchor: T) =
+    transitionStates().let { (prev, next) -> prev == anchor && next == anchor }
 
   /** Returns if the current transition state is in any of the given [stateRelations]. */
   fun isState(vararg stateRelations: SwipeableStateRelation<T>): Boolean {
@@ -117,38 +145,10 @@ class SwipeableTransition<T>(
   /**
    * Returns a derived [State] with discrete values derived from the continuous state of this
    * transition.
-   *
-   * @param stateEnds A function returning until which progress to the next state this state is
-   *   considered the current one. For example, a transition from `A` to `B` with a progress of
-   *   `0.4` towards `B` and a `stateEnd` of `0.3` for `A` would consider `B` the current state.
-   * @param stateTransform An optional function mapping the current state to a different one.
    */
   @Composable
-  fun <S> derivedState(stateEnds: (T) -> Float = { 0.5f }, stateTransform: (T) -> S) =
-    remember(this, stateTransform, stateEnds) {
-      derivedStateOf {
-        val (prevState, nextState) = transitionStates()
-        val progress = progress()
-        if (progress <= stateEnds(prevState)) stateTransform(prevState)
-        else stateTransform(nextState)
-      }
-    }
-
-  /**
-   * Returns a [State] holding current, discrete value of this transition.
-   *
-   * @param stateEnds A function returning until which progress to the next state this state is
-   *   considered the current one. For example, a transition from `A` to `B` with a progress of
-   *   `0.4` towards `B` and a `stateEnd` of `0.3` for `A` would consider `B` the current state.
-   */
-  @Composable
-  fun currentState(stateEnds: (T) -> Float = { 0.5f }) =
-    remember(this, stateEnds) {
-      derivedStateOf {
-        val (prevState, nextState) = transitionStates()
-        if (progress() <= stateEnds(prevState)) prevState else nextState
-      }
-    }
+  fun <S> derivedState(transform: FluentState<T>.() -> S) =
+    remember(this, transform) { derivedStateOf { transform() } }
 }
 
 /**

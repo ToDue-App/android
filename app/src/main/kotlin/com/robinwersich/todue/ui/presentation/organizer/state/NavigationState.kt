@@ -31,9 +31,9 @@ import com.robinwersich.todue.utility.mapToImmutableList
 import com.robinwersich.todue.utility.size
 import com.robinwersich.todue.utility.toImmutableList
 import com.robinwersich.todue.utility.union
-import java.time.LocalDate
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import java.time.LocalDate
 
 /**
  * Holds information about the current navigation position of the organizer. This is mainly defined
@@ -121,16 +121,7 @@ class NavigationState(
   /** The [SwipeableTransition] for the [TimelineStyle] of each [Timeline]. */
   val timelineStyleTransitions: Map<Timeline, SwipeableTransition<TimelineStyle>> =
     timelines.associateWith { timeline ->
-      timelineNavPosTransition.derive { navPos ->
-        when {
-          timeline > navPos.timeline -> TimelineStyle.HIDDEN_PARENT
-          timeline == navPos.timeline && navPos.showChild -> TimelineStyle.PARENT
-          timeline == navPos.timeline && !navPos.showChild -> TimelineStyle.FULLSCREEN
-          timeline == navPos.visibleChild -> TimelineStyle.CHILD
-          timeline < (navPos.visibleChild ?: navPos.timeline) -> TimelineStyle.HIDDEN_CHILD
-          else -> error("Unhandled TimelinePresentation case.")
-        }
-      }
+      timelineNavPosTransition.derive { timelineStyle(timeline, it) }
     }
 
   /** Attempts to find the [TimelineNavigationPosition] that shows the given [timeline]. */
